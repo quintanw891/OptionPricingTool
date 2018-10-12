@@ -1,3 +1,7 @@
+'''
+@author: William Quintano
+'''
+#python imports
 import tkinter
 import http.client
 import json
@@ -6,6 +10,9 @@ from tkinter.constants import LEFT
 from tkinter import StringVar
 from test.test_optparse import DurationOption
 from audioop import ratecv
+
+#local imports
+import black_scholes
 
 entry_window = tkinter.Tk()
 entry_window.title('Option Pricing Tool')
@@ -121,8 +128,10 @@ def generate_prices():
                 try:
                     response = connection.getresponse()
                     content = response.read()
-                    #print('underlying ask:\t'+str(json.loads(content)['quotes']['quote']['ask']))
-                    #print('underlying bid:\t'+str(json.loads(content)['quotes']['quote']['bid']))
+                    u_ask = json.loads(content)['quotes']['quote']['ask']
+                    u_bid = json.loads(content)['quotes']['quote']['bid']
+                    #print('underlying ask:\t'+str(u_ask))
+                    #print('underlying bid:\t'+str(u_bid))
                 except http.client.HTTPException:
                     # Exception
                     print('Exception during request')
@@ -147,12 +156,16 @@ def generate_prices():
                     expiration = datetime.strptime(date , '%Y-%m-%d')
                     now = datetime.today()
                     lifespan = expiration-now
-                    t = lifespan.days/365.0
+                    if (lifespan.days > 0):
+                        t = lifespan.days/365.0
+                    else:
+                        t = 0.5/365.0
                     #get appropriate risk free rate for this expiration date
                     while(rate_index<len(rf_rates)-1 
                     and lifespan.days > rf_rates[rate_index].duration 
                     and lifespan.days-rf_rates[rate_index].duration > abs(lifespan.days-rf_rates[rate_index+1].duration)):
                         rate_index += 1
+                    rfr = rf_rates[rate_index].rate
                     #print('t value:\t'+str(t))
                     #print('r value:\t'+str(rf_rates[rate_index].rate))
                     connection.request('GET', '/v1/markets/options/chains?symbol='+symbol+'&expiration='+date, None, headers)
@@ -166,11 +179,23 @@ def generate_prices():
                         date_symbol.grid(row=row,column=0,columnspan=5)
                         row+=1
                         for i in json_data['options']['option']:
+                            #calculate buy and sell values
+                            if(i['symbol'][len(symbol)+6] == 'C'):  #option is call
+                                u_buy = u_bid
+                                u_sell = u_ask
+                                call = True
+                            else:                                  #option is put
+                                u_buy = u_ask
+                                u_sell = u_bid
+                                call = False
+                                
+                            buy_price = black_scholes.black_scholes(i['strike'], t, u_buy, rfr, float(volatility), call)
+                            sell_price = black_scholes.black_scholes(i['strike'], t, u_sell, rfr, float(volatility), call)
                             #create labels for output
                             option_symbol = tkinter.Label(display_frame,text=i['symbol'])
-                            option_buy_at = tkinter.Label(display_frame,text='TBD')
+                            option_buy_at = tkinter.Label(display_frame,text=str(buy_price))
                             option_ask = tkinter.Label(display_frame,text=str(round(i['ask'],2)))
-                            option_sell_at = tkinter.Label(display_frame,text='TBD')
+                            option_sell_at = tkinter.Label(display_frame,text=str(sell_price))
                             option_bid = tkinter.Label(display_frame,text=str(round(i['bid'],2)))
                             #add labels to layout
                             option_symbol.grid(row=row,column=0)
